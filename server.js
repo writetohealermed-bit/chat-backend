@@ -22,6 +22,7 @@ const YOUR_WHATSAPP_NUMBER = 'whatsapp:+923034515151';
 const client = twilio(ACCOUNT_SID, AUTH_TOKEN);
 
 const sessions = {};
+let lastActiveSession = null;
 
 app.post('/api/message', async (req, res) => {
   const { sessionId, message, customerName } = req.body;
@@ -31,12 +32,13 @@ app.post('/api/message', async (req, res) => {
   }
 
   sessions[sessionId].messages.push({ from: 'customer', text: message, time: new Date() });
+  lastActiveSession = sessionId;
 
   try {
     await client.messages.create({
       from: TWILIO_WHATSAPP_NUMBER,
       to: YOUR_WHATSAPP_NUMBER,
-      body: `💬 *New message from ${sessions[sessionId].customerName}*\nSession: ${sessionId}\n\n${message}\n\n_Reply with: ${sessionId}::your reply_`
+      body: `💬 *${sessions[sessionId].customerName}* says:\n\n${message}\n\n_Just reply to this message to respond_`
     });
     res.json({ success: true });
   } catch (err) {
@@ -47,15 +49,16 @@ app.post('/api/message', async (req, res) => {
 
 app.post('/webhook', (req, res) => {
   const incomingMsg = req.body.Body || '';
+  const from = req.body.From || '';
 
-  if (incomingMsg.includes('::')) {
-    const [sessionId, ...replyParts] = incomingMsg.split('::');
-    const reply = replyParts.join('::').trim();
-    const cleanSession = sessionId.trim();
+  console.log(`Incoming from ${from}: ${incomingMsg}`);
 
-    if (sessions[cleanSession]) {
-      sessions[cleanSession].messages.push({ from: 'owner', text: reply, time: new Date() });
-      io.to(cleanSession).emit('new_message', { from: 'owner', text: reply });
+  if (from === YOUR_WHATSAPP_NUMBER && lastActiveSession) {
+    const sessionId = lastActiveSession;
+    if (sessions[sessionId]) {
+      sessions[sessionId].messages.push({ from: 'owner', text: incomingMsg, time: new Date() });
+      io.to(sessionId).emit('new_message', { from: 'owner', text: incomingMsg });
+      console.log(`Reply sent to session ${sessionId}: ${incomingMsg}`);
     }
   }
 
